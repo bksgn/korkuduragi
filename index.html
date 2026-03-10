@@ -589,6 +589,37 @@
   .toast.show { transform: translateY(0); opacity: 1; }
   .toast .toast-icon { margin-right: 0.5rem; }
 
+
+  .gb-book-item {
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 1rem;
+    margin-bottom: 0.75rem; display: flex;
+    align-items: center; gap: 1rem;
+  }
+  .gb-book-item:hover { border-color: var(--accent); }
+  .gb-book-cover {
+    width: 48px; height: 64px; border-radius: 6px;
+    object-fit: cover; background: var(--bg2);
+    flex-shrink: 0; overflow: hidden;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.5rem;
+  }
+  .gb-book-cover img { width:100%; height:100%; object-fit:cover; }
+  .gb-book-info { flex: 1; }
+  .gb-book-title { font-family: "Playfair Display", serif; font-weight: 700; font-size: 0.95rem; margin-bottom: 0.2rem; }
+  .gb-book-author { font-size: 0.85rem; color: var(--text2); margin-bottom: 0.5rem; }
+  .btn-gb-add {
+    background: var(--accent); color: var(--bg);
+    border: none; border-radius: 8px; padding: 0.4rem 1rem;
+    cursor: pointer; font-family: "Space Mono", monospace;
+    font-size: 0.65rem; letter-spacing: 0.05em;
+    transition: all 0.2s; white-space: nowrap;
+  }
+  .btn-gb-add:hover { background: var(--accent2); }
+  .btn-gb-add:disabled { opacity: 0.5; cursor: not-allowed; }
+  .gb-loading { text-align: center; padding: 2rem; color: var(--text2); }
+  .gb-empty { text-align: center; padding: 2rem; color: var(--text3); }
+
   /* ANIMATIONS */
   @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
   .book-card { animation: fadeIn 0.4s ease both; }
@@ -692,7 +723,8 @@
   <div class="admin-header">
     <h1 class="admin-title"><em>Admin</em> Paneli</h1>
     <div style="display:flex;gap:.75rem">
-      <button class="btn-new-book" onclick="showAddForm()">+ Yeni Kitap</button>
+      <button class="btn-new-book" onclick="showGutenberg()">🤖 Otomatik Ekle</button>
+      <button class="btn-new-book" style="background:var(--surface2);color:var(--text2);border:1px solid var(--border2)" onclick="showAddForm()">+ Manuel Ekle</button>
       <button class="btn-cancel" onclick="adminLogout()">Çıkış</button>
     </div>
   </div>
@@ -754,6 +786,22 @@
   <div class="admin-books">
     <h3 class="admin-books-title">Yayınlanan Kitaplar</h3>
     <div id="admin-book-list"></div>
+  </div>
+</div>
+
+
+<!-- GUTENBERG MODAL -->
+<div class="modal-overlay" id="gutenberg-modal">
+  <div class="modal" style="max-width:520px">
+    <h2 class="modal-title">🤖 <em>Otomatik</em> Kitap Ekle</h2>
+    <p class="modal-sub">Project Gutenberg'den kitap adı veya yazar ara</p>
+    <div style="position:relative;margin-bottom:1rem">
+      <input class="form-input" id="gb-search" placeholder="Örn: Namık Kemal, Shakespeare, Don Quixote..."
+        onkeydown="if(event.key==='Enter')searchGutenberg()">
+    </div>
+    <button class="btn-publish" style="width:100%;margin-bottom:1.5rem" onclick="searchGutenberg()">🔍 Ara</button>
+    <div id="gb-results" style="max-height:320px;overflow-y:auto"></div>
+    <button class="btn-cancel" style="width:100%;margin-top:1rem" onclick="closeGutenberg()">Kapat</button>
   </div>
 </div>
 
@@ -1088,6 +1136,117 @@ if(window.speechSynthesis){
   window.speechSynthesis.onvoiceschanged = ()=>window.speechSynthesis.getVoices();
 }
 
+
+// ─────────────────────── GUTENBERG BOT ───────────────
+function showGutenberg(){
+  document.getElementById('gutenberg-modal').classList.add('open');
+  document.getElementById('gb-results').innerHTML='';
+  document.getElementById('gb-search').value='';
+  setTimeout(()=>document.getElementById('gb-search').focus(), 200);
+}
+function closeGutenberg(){
+  document.getElementById('gutenberg-modal').classList.remove('open');
+}
+
+async function searchGutenberg(){
+  const q = document.getElementById('gb-search').value.trim();
+  if(!q) return;
+  const res = document.getElementById('gb-results');
+  res.innerHTML = '<div class="gb-loading">🔍 Aranıyor...</div>';
+  try {
+    const url = `https://gutendex.com/books/?search=${encodeURIComponent(q)}&languages=tr,en`;
+    const r = await fetch(url);
+    const data = await r.json();
+    if(!data.results || !data.results.length){
+      res.innerHTML = '<div class="gb-empty">📭 Sonuç bulunamadı. Farklı bir kelime deneyin.</div>';
+      return;
+    }
+    res.innerHTML = data.results.slice(0,10).map(b=>{
+      const title  = b.title || 'Bilinmiyor';
+      const author = b.authors?.map(a=>a.name).join(', ') || 'Bilinmiyor';
+      const cover  = b.formats?.['image/jpeg'] || '';
+      const id     = b.id;
+      const coverHtml = cover
+        ? `<img src="${cover}" onerror="this.style.display='none'">`
+        : '📖';
+      return `<div class="gb-book-item">
+        <div class="gb-book-cover">${coverHtml}</div>
+        <div class="gb-book-info">
+          <div class="gb-book-title">${title}</div>
+          <div class="gb-book-author">${author}</div>
+        </div>
+        <button class="btn-gb-add" id="gb-btn-${id}" onclick="addGutenbergBook(${id},'${title.replace(/'/g,"\'")}','${author.replace(/'/g,"\'")}','${cover}')">
+          + Ekle
+        </button>
+      </div>`;
+    }).join('');
+  } catch(e){
+    res.innerHTML = '<div class="gb-empty">⚠ Bağlantı hatası. İnternet bağlantınızı kontrol edin.</div>';
+  }
+}
+
+async function addGutenbergBook(id, title, author, cover){
+  const btn = document.getElementById('gb-btn-'+id);
+  if(btn){ btn.textContent = '⏳ Yükleniyor...'; btn.disabled = true; }
+  try {
+    // Fetch book text
+    const detailRes = await fetch(`https://gutendex.com/books/${id}/`);
+    const detail    = await detailRes.json();
+
+    // Try to get plain text
+    const formats = detail.formats || {};
+    const textUrl = formats['text/plain; charset=utf-8']
+      || formats['text/plain; charset=us-ascii']
+      || formats['text/plain']
+      || null;
+
+    let text = '';
+    if(textUrl){
+      try {
+        const textRes = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(textUrl)}`);
+        const textData = await textRes.json();
+        let raw = textData.contents || '';
+        // Clean Gutenberg header/footer
+        const startIdx = raw.search(/\*\*\* START OF (THE|THIS) PROJECT GUTENBERG/i);
+        const endIdx   = raw.search(/\*\*\* END OF (THE|THIS) PROJECT GUTENBERG/i);
+        if(startIdx > -1) raw = raw.substring(startIdx);
+        if(endIdx   > -1) raw = raw.substring(0, endIdx - startIdx);
+        // Remove header line itself
+        raw = raw.replace(/\*\*\* START OF.*?\*\*\*/i, '').trim();
+        text = raw.substring(0, 15000); // max 15000 chars
+      } catch(e){ text = 'Metin yüklenemedi. Lütfen manuel olarak ekleyin.'; }
+    } else {
+      text = 'Bu kitabın metni mevcut değil. Lütfen manuel olarak ekleyin.';
+    }
+
+    // Detect category
+    const subjects = (detail.subjects || []).join(' ').toLowerCase();
+    let category = 'Roman';
+    if(subjects.includes('poetry') || subjects.includes('poem')) category = 'Şiir';
+    else if(subjects.includes('history') || subjects.includes('tarih')) category = 'Tarih';
+    else if(subjects.includes('science')) category = 'Bilim';
+    else if(subjects.includes('philosophy')) category = 'Felsefe';
+    else if(subjects.includes('children')) category = 'Çocuk';
+
+    const newBook = {
+      id: 'gb_' + id + '_' + Date.now(),
+      title, author, category,
+      cover: cover || '',
+      text,
+      chapters: []
+    };
+    books.push(newBook);
+    saveBooks();
+    if(btn){ btn.textContent = '✓ Eklendi'; btn.style.background = 'var(--green)'; btn.style.color = '#000'; }
+    toast('✅ "' + title + '" kütüphaneye eklendi!');
+    renderAdminStats();
+    renderAdminList();
+  } catch(e){
+    if(btn){ btn.textContent = '⚠ Hata'; btn.disabled = false; }
+    toast('⚠ Kitap eklenirken hata oluştu');
+  }
+}
+
 // ─────────────────────── ADMIN ───────────────────────
 function handleAdminClick(){
   if(adminLoggedIn){ showPage('admin'); }
@@ -1245,6 +1404,9 @@ window.addEventListener('keydown',e=>{
 });
 
 document.getElementById('login-modal').addEventListener('click',function(e){
+  if(e.target===this) this.classList.remove('open');
+});
+document.getElementById('gutenberg-modal').addEventListener('click',function(e){
   if(e.target===this) this.classList.remove('open');
 });
 
